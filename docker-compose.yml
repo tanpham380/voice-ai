@@ -1,0 +1,82 @@
+# Voice service — standalone.
+#
+#   docker compose up --build
+#
+# Then open http://localhost:8000 for the voice-chat UI.
+#
+# Before first run, fetch models:
+#   python scripts/download_models.py     (downloads Silero VAD + nghi-stt-v3 bundle)
+#
+# The AI endpoint (AI_CHAT_URL) points at the ChatbotAIAgent backend. If that
+# backend runs in its own compose network, adjust the host (e.g. host.docker.internal
+# on Docker Desktop, or the backend's service name on a shared network).
+
+services:
+  voice:
+    build:
+      context: .
+      args:
+        # GPU=1 builds the NVIDIA CUDA image (PyTorch GPU backend for VieNeu).
+        # Set to 0 (or remove) for the CPU-only (torch-free) image.
+        GPU: "1"
+        # TARGET_STAGE selects the final base: "cpu" or "gpu".
+        TARGET_STAGE: "gpu"
+    container_name: voice-service
+    ports:
+      - "8000:8000"
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8000"
+      STT_MODEL_NAME: nghi-stt-v3
+      STT_NUM_THREADS: "4"
+      STT_MODEL_DIR: models/stt
+      VAD_MODEL: models/vad/silero_vad.onnx
+      TTS_DEFAULT_VOICE: Adam
+      # Pre-configured quick-pick voices (one male, one female) for the UI.
+      TTS_DEFAULT_VOICE_MALE: Adam
+      TTS_DEFAULT_VOICE_FEMALE: Ngọc Huyền
+      # Speaking rate: 1.0 natural, >1 faster, <1 slower (mapped to VieNeu
+      # max_new_frames). Tune so the bot doesn't sound rushed or sluggish.
+      TTS_SPEED: ${TTS_SPEED:-1.05}
+      # Local pre-staged VieNeu ONNX artifacts (models/tts). When present the
+      # backbone + cloning load offline; the MOSS codec still comes from HF.
+      TTS_MODEL_DIR: models/tts
+      # Point at your ChatbotAIAgent backend. Read from .env (AI_CHAT_URL).
+      # Fallback: host.docker.internal for a backend running on the host.
+      AI_CHAT_URL: ${AI_CHAT_URL:-http://host.docker.internal:8002/v1/customer/chat}
+      AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-60}
+      # OpenAI-compatible LLM (AI-Box gateway / local vLLM). Read from .env.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-EMPTY}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-http://192.168.1.128:8000/v1}
+      OPENAI_MODEL: ${OPENAI_MODEL:-Ornith-1.5-35B-A3B}
+      OPENAI_TEMPERATURE: ${OPENAI_TEMPERATURE:-0.6}
+      OPENAI_MAX_TOKENS: ${OPENAI_MAX_TOKENS:-16384}
+      OPENAI_TOP_P: ${OPENAI_TOP_P:-0.95}
+      OPENAI_PRESENCE_PENALTY: ${OPENAI_PRESENCE_PENALTY:-0.2}
+      OPENAI_REPETITION_PENALTY: ${OPENAI_REPETITION_PENALTY:-1.05}
+      OPENAI_ENABLE_THINKING: ${OPENAI_ENABLE_THINKING:-0}
+      OPENAI_STOP: ${OPENAI_STOP:-"<|im_end|>,<|endoftext|>"}
+      OPENAI_SYSTEM_PROMPT: "${OPENAI_SYSTEM_PROMPT:-Bạn là chuyên viên tư vấn tuyển sinh và cố vấn hướng nghiệp thân thiện, nói tiếng Việt tự nhiên. Trả lời ngắn gọn, ấm áp, đúng trọng tâm. Thời gian hiện tại: {{current_time}}.}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # STT models (nghi-stt-v3) persist outside the image.
+      - ./models:/app/models
+      # VieNeu TTS model — auto-downloaded from HuggingFace
+      # (pnnbao-ump/VieNeu-TTS-v3-Turbo) on first run, ~1.7 GB.
+      # Kept in a named volume so rebuilds don't re-download it.
+      - hf-cache:/home/appuser/.cache/huggingface
+    restart: unless-stopped
+    # GPU: run VieNeu on the NVIDIA GPU (requires the GPU=1 build above and
+    # an NVIDIA driver with WSL2 GPU-PV support on the host).
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+volumes:
+  # VieNeu TTS model cache (HuggingFace) — survives container rebuilds.
+  hf-cache:

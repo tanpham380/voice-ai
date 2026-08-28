@@ -1,0 +1,29 @@
+# Voice service — TTS (VieNeu) + STT (sherpa-onnx) + AI voice flow.
+#
+# CPU (default, torch-free):  pip install -r requirements.txt
+# GPU (NVIDIA):               install torch first, then this file.
+#   pip install torch==2.8.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu128
+#   pip install -r requirements.txt
+#
+# VieNeu auto-detects the engine: CUDA present -> PyTorch (batched), else ONNX/CPU.
+
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+python-multipart==0.0.20
+httpx==0.28.1
+numpy==1.26.4
+soundfile==0.13.1
+scipy==1.14.1
+
+# STT engine (offline, private). Vietnamese Zipformer transducer (nghi-stt-v3).
+sherpa-onnx>=1.11.0
+
+# TTS engine (Vietnamese, 48 kHz). CPU path is torch-free (ONNX).
+vieneu
+
+# LLM client (OpenAI-compatible, streaming). Local-first: only the LLM calls out.
+openai>=1.40.0
+
+# ONNX runtime for Silero VAD (already pulled by sherpa-onnx; pin for clarity).
+onnxruntime>=1.17.0

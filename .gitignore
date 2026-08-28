@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Env / secrets
+.env
+.env.local
+*.secret
+
+# Models (large binaries — downloaded via scripts)
+models/stt/*
+models/tts/*
+models/vad/*
+!models/**/.gitkeep
+
+# HuggingFace cache
+hf-cache/
+/home/appuser/.cache/huggingface/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# Temp / logs
+*.log
+tmp/
+temp/
+__pycache__/

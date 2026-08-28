@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Trợ lý Tư vấn Á Âu — Voice Test</title>
+  <style>
+    :root { --bg:#0b1020; --card:#161c33; --accent:#5b8cff; --accent2:#36d399;
+            --txt:#eaf0ff; --muted:#93a0c8; --warn:#ffb454; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: system-ui, "Segoe UI", Roboto, Arial, sans-serif;
+           background: var(--bg); color:var(--txt); height:100vh;
+           display:flex; flex-direction:column; align-items:center; }
+    header { width:100%; padding:14px 20px; background:var(--card); border-bottom:1px solid #26305a;
+             display:flex; justify-content:space-between; align-items:center; }
+    header h1 { margin:0; font-size:17px; }
+    header small { color:var(--muted); }
+    .stage { flex:1; width:100%; max-width:760px; display:flex; flex-direction:column;
+             align-items:center; justify-content:center; gap:22px; padding:20px; }
+    /* Assistant avatar + state */
+    .orb { width:150px; height:150px; border-radius:50%; position:relative;
+           background: radial-gradient(circle at 35% 30%, #6f9bff, #2b3f8f 70%);
+           box-shadow: 0 0 0 0 rgba(91,140,255,.5); transition: box-shadow .3s; }
+    .orb.listening { animation: pulse 1.4s infinite; box-shadow:0 0 0 14px rgba(54,211,153,.18); }
+    .orb.thinking  { background: radial-gradient(circle at 35% 30%, #ffd479, #b9791f 70%);
+                     box-shadow:0 0 0 10px rgba(255,180,84,.18); }
+    .orb.speaking  { animation: pulse 1s infinite; box-shadow:0 0 0 16px rgba(91,140,255,.25); }
+    @keyframes pulse { 0%{box-shadow:0 0 0 6px rgba(91,140,255,.30);} 70%{box-shadow:0 0 0 22px rgba(91,140,255,0);} 100%{box-shadow:0 0 0 6px rgba(91,140,255,0);} }
+    .state { font-size:15px; color:var(--muted); min-height:22px; }
+    .state b { color:var(--txt); }
+    /* Controls */
+    .controls { display:flex; gap:14px; align-items:center; flex-wrap:wrap; justify-content:center; }
+    .mic-btn { width:74px; height:74px; border-radius:50%; border:none; cursor:pointer;
+               background:var(--accent2); color:#06281c; font-size:30px; transition: transform .1s, background .2s; }
+    .mic-btn:active { transform: scale(.94); }
+    .mic-btn.recording { background:#ff5b6e; color:#fff; animation: pulse 1s infinite; }
+    .mic-btn:disabled { opacity:.45; cursor:default; }
+    .text-wrap { display:flex; gap:10px; width:100%; max-width:560px; }
+    #input { flex:1; resize:none; height:50px; padding:12px 14px; border-radius:12px; border:1px solid #26305a;
+             background:#0e1430; color:var(--txt); font-size:15px; }
+    .send-btn { padding:0 22px; border:none; border-radius:12px; background:var(--accent); color:#fff;
+                font-size:15px; cursor:pointer; }
+    .send-btn:disabled { opacity:.5; cursor:default; }
+    /* Transcript / answer panel */
+    .panel { width:100%; max-width:760px; background:var(--card); border:1px solid #26305a; border-radius:14px;
+             padding:14px 16px; min-height:96px; }
+    .panel .row { margin:6px 0; line-height:1.55; }
+    .panel .label { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+    .panel .user-t { color:var(--accent2); }
+    .panel .bot-t { color:var(--txt); white-space:pre-wrap; }
+    .hint { color:var(--muted); font-size:12px; text-align:center; max-width:560px; }
+    audio { width:100%; max-width:560px; margin-top:6px; }
+    .badge { display:inline-block; font-size:11px; padding:2px 8px; border-radius:999px; background:#26305a; color:var(--muted); margin-left:6px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🎙️ Trợ lý Tư vấn Á Âu</h1>
+    <small>Model: <span id="model">…</span> · <span id="meta">đang kết nối…</span></small>
+  </header>
+
+  <div class="stage">
+    <div class="orb" id="orb"></div>
+    <div class="state" id="state">Sẵn sàng. Hãy nói hoặc gõ câu hỏi.</div>
+
+    <div class="controls">
+      <button class="mic-btn" id="mic" title="Giữ để nói (hoặc nhấn 1 lần để bật/tắt ghi âm)">🎤</button>
+      <div class="text-wrap">
+        <textarea id="input" placeholder="Sếp gõ câu hỏi ở đây… (Enter để gửi)"></textarea>
+        <button class="send-btn" id="send">Gửi</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="row"><span class="label">Câu hỏi</span><div class="user-t" id="q">—</div></div>
+      <div class="row"><span class="label">Trợ lý trả lời</span><div class="bot-t" id="a">—</div></div>
+      <audio id="audio" controls style="display:none"></audio>
+    </div>
+
+    <div class="hint">💡 Nói trực tiếp vào mic hoặc gõ văn bản — trợ lý sẽ đọc câu trả lời bằng giọng nói (TTS).
+      Khi trợ lý đang nói, bạn có thể cắt ngang (barge-in) bằng cách bấm mic.</div>
+  </div>
+
+  <script>
+    const orb = document.getElementById('orb');
+    const stateEl = document.getElementById('state');
+    const micBtn = document.getElementById('mic');
+    const input = document.getElementById('input');
+    const sendBtn = document.getElementById('send');
+    const qEl = document.getElementById('q');
+    const aEl = document.getElementById('a');
+    const audioEl = document.getElementById('audio');
+    const metaEl = document.getElementById('meta');
+    const modelEl = document.getElementById('model');
+
+    let sessionId = 'assistant-' + Math.random().toString(36).slice(2, 9);
+    let recording = false;
+    let mediaRecorder = null;
+    let chunks = [];
+    let busy = false;
+
+    function setState(s, text) {
+      orb.className = 'orb' + (s ? ' ' + s : '');
+      if (text) stateEl.innerHTML = text;
+    }
+
+    async function loadHealth() {
+      try {
+        const r = await fetch('/health');
+        const j = await r.json();
+        modelEl.textContent = j.ai?.model || 'n/a';
+        metaEl.textContent = `STT:${j.stt?.ready?'✓':'✗'} · TTS:${j.tts?.ready?'✓':'✗'}`;
+      } catch (e) { metaEl.textContent = 'lỗi /health'; }
+    }
+
+    // ── Text path: text -> LLM(stream) -> TTS(stream) -> play ngay ──
+    async function askText(text) {
+      if (busy) return;
+      busy = true; sendBtn.disabled = true; micBtn.disabled = true;
+      qEl.textContent = text; aEl.textContent = '';
+      setState('thinking', 'Trợ lý đang <b>suy nghĩ</b>…');
+      try {
+        // Fetch the text answer (for the panel) in parallel with audio.
+        const textP = fetch('/v1/chat', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ message:text, session_id:sessionId, stream:true }),
+        }).then(async (r) => {
+          const reader = r.body.getReader(); const dec = new TextDecoder();
+          let buf = '', answer = '';
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += dec.decode(value, { stream:true });
+            const lines = buf.split('\n\n'); buf = lines.pop();
+            for (const line of lines) {
+              if (!line.startsWith('data:')) continue;
+              const p = line.slice(5).trim();
+              if (p === '[DONE]' || p.startsWith('event:')) continue;
+              answer += p; aEl.textContent = answer;
+            }
+          }
+          return answer;
+        });
+
+        // Stream audio directly: first sentence plays as soon as LLM emits it.
+        const resp = await fetch('/v1/chat/stream-audio', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ message:text, session_id:sessionId, stream:true }),
+        });
+        if (!resp.ok) throw new Error('stream-audio ' + resp.status);
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        audioEl.src = url; audioEl.style.display = 'block';
+        setState('speaking', 'Trợ lý đang <b>nói</b>…');
+        await audioEl.play();
+        await new Promise((res) => {
+          audioEl.onended = res;
+          const check = setInterval(() => { if (audioEl.paused) { clearInterval(check); res(); } }, 300);
+        });
+        await textP; // ensure panel text is filled
+        setState('', 'Sẵn sàng. Hãy nói hoặc gõ câu hỏi.');
+      } catch (e) {
+        aEl.textContent = '[lỗi] ' + e;
+        setState('', 'Sẵn sàng.');
+      } finally {
+        busy = false; sendBtn.disabled = false; micBtn.disabled = false; input.focus();
+      }
+    }
+
+    // ── Voice path: mic -> /v1/voice/chat (STT->LLM->TTS) -> play ──
+    async function askVoice(blob) {
+      if (busy) return;
+      busy = true; sendBtn.disabled = true; micBtn.disabled = true;
+      setState('thinking', 'Đang <b>nhận dạng</b> giọng nói…');
+      try {
+        const fd = new FormData();
+        fd.append('file', blob, 'voice.wav');
+        fd.append('session_id', sessionId);
+        const r = await fetch('/v1/voice/chat', { method:'POST', body: fd });
+        const j = await r.json();
+        if (j.transcript) qEl.textContent = j.transcript;
+        if (j.answer) aEl.textContent = j.answer;
+        if (j.audio) {
+          setState('speaking', 'Trợ lý đang <b>nói</b>…');
+          const bin = atob(j.audio);
+          const arr = new Uint8Array(bin.length);
+          for (let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+          const url = URL.createObjectURL(new Blob([arr], { type:'audio/wav' }));
+          audioEl.src = url; audioEl.style.display = 'block';
+          await audioEl.play();
+          await new Promise((res) => {
+            audioEl.onended = res;
+            const check = setInterval(() => { if (audioEl.paused) { clearInterval(check); res(); } }, 300);
+          });
+        }
+        setState('', 'Sẵn sàng. Hãy nói hoặc gõ câu hỏi.');
+      } catch (e) {
+        aEl.textContent = '[lỗi] ' + e;
+        setState('', 'Sẵn sàng.');
+      } finally {
+        busy = false; sendBtn.disabled = false; micBtn.disabled = false;
+      }
+    }
+
+    // ── Mic handling (hold or toggle) ──
+    async function startRec() {
+      if (recording) return;
+      const stream = await navigator.mediaDevices.getUserMedia({ audio:true });
+      mediaRecorder = new MediaRecorder(stream);
+      chunks = [];
+      mediaRecorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+      mediaRecorder.onstop = () => {
+        stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(chunks, { type:'audio/webm' });
+        // convert to wav via the server is not needed; /v1/voice/chat accepts wav/mp3/webm
+        askVoice(blob);
+      };
+      mediaRecorder.start();
+      recording = true; micBtn.classList.add('recording');
+      setState('listening', 'Đang <b>nghe</b>… (nói vào mic)');
+    }
+    function stopRec() {
+      if (!recording) return;
+      recording = false; micBtn.classList.remove('recording');
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+    }
+    // click toggles; hold (mousedown/up) also works
+    micBtn.addEventListener('click', () => { recording ? stopRec() : startRec(); });
+
+    sendBtn.onclick = () => { const t = input.value.trim(); if (t) { input.value=''; askText(t); } };
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendBtn.click(); }
+    });
+
+    loadHealth();
+    input.focus();
+  </script>
+</body>
+</html>
