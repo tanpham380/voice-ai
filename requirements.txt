@@ -19,8 +19,9 @@ scipy==1.14.1
 # STT engine (offline, private). Vietnamese Zipformer transducer (nghi-stt-v3).
 sherpa-onnx>=1.11.0
 
-# TTS engine (Vietnamese, 48 kHz). CPU path is torch-free (ONNX).
-vieneu
+# TTS engine (Vietnamese zero-shot, 48 kHz). ONNX/CPU, no PyTorch.
+# Weights (~900 MB) auto-download from Hugging Face on first use.
+zerotts>=0.1.2
 
 # LLM client (OpenAI-compatible, streaming). Local-first: only the LLM calls out.
 openai>=1.40.0

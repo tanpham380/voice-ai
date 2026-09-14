@@ -6,11 +6,11 @@ với khả năng **streaming thời gian thực** (text và audio phát đồng
 ```
 mic / text ──► STT (nghi-stt-v3, sherpa-onnx)
               ──► LLM (OpenAI-compatible: DeepSeek qua AI-Box gateway)
-                    ──► TTS (VieNeu v3 Turbo, 48 kHz, GPU)
-                          ──► Web Audio (phát stream nối tiếp)
+                    ──► TTS (ZeroTTS zero-shot, 48 kHz, CPU)
+                          ──► Web Audio (phát stream tiếp nối)
 ```
 
-Công nghệ: **Python + FastAPI**, chạy bằng **Docker Compose** (hỗ trợ GPU NVIDIA qua WSL2).
+Công nghệ: **Python + FastAPI**, chạy trên **CPU** (ONNX, không cần PyTorch/GPU).
 
 ---
 
@@ -21,10 +21,10 @@ Công nghệ: **Python + FastAPI**, chạy bằng **Docker Compose** (hỗ trợ
 - **STT tiếng Việt**: `nghi-stt-v3` (Zipformer transducer, sherpa-onnx), chạy offline.
 - **LLM tư vấn**: OpenAI-compatible (mặc định DeepSeek qua AI-Box gateway),
   hỗ trợ streaming token, tắt "thinking" để phản hồi nhanh.
-- **TTS VieNeu v3 Turbo**: 48 kHz, 20+ giọng tiếng Việt, chạy trên **GPU CUDA**.
+- **TTS ZeroTTS zero-shot**: 48 kHz, 8 giọng tiếng Việt preset, chạy trên **CPU** (ONNX, không cần PyTorch). TTFA ~70 ms, không khoảng lặng chết giữa các câu.
 - **Format text trước khi TTS**: tự động loại bỏ markdown, emoji, ký tự đặc biệt,
   chuẩn hóa dấu câu tiếng Việt → giọng đọc tự nhiên, rõ ràng.
-- **Điều chỉnh tốc độ nói**: `TTS_SPEED` (0.75–1.5) map sang `max_new_frames` của VieNeu.
+- **Giọng nói**: chọn qua tham số `voice` (mặc định `maichi`). 8 preset: maichi, baotrang, kimoanh, hamy, giahuy, huuduc, quangminh, tiendat.
 - **Web Audio player**: phát PCM16 stream nối tiếp (không chồng chéo → không nháo nhào).
 - **Barge-in**: người dùng có thể cắt ngang khi bot đang nói (pipeline mode).
 
@@ -38,7 +38,7 @@ Công nghệ: **Python + FastAPI**, chạy bằng **Docker Compose** (hỗ trợ
 
 ```bash
 python scripts/download_models.py        # STT (nghi-stt-v3) + Silero VAD
-python scripts/download_tts_models.py    # VieNeu TTS (hoặc để tự động tải từ HF)
+python scripts/download_tts_models.py    # ZeroTTS weights (~900 MB, tải 1 lần)
 ```
 
 ### 2. Cấu hình
@@ -55,18 +55,18 @@ Các biến quan trọng:
 | `OPENAI_API_KEY` | API key | — |
 | `OPENAI_MODEL` | Tên model | `deepseek-v4-flash` |
 | `OPENAI_ENABLE_THINKING` | Tắt thinking (0/1) | `0` |
-| `TTS_DEFAULT_VOICE` | Giọng mặc định | `Adam` |
-| `TTS_SPEED` | Tốc độ nói (1.0 tự nhiên) | `1.05` |
-| `TTS_SILENCE_P` | Khoảng nghỉ giữa câu | `0.15` |
+| `TTS_DEFAULT_VOICE` | Giọng mặc định | `maichi` |
+| `TTS_CFG_SCALE` | Cường độ định hình giọng | `1.0` |
+| `TTS_AUDIO_TEMPERATURE` | Nhiệt độ lấy mẫu audio | `0.8` |
 
-### 3. Build & chạy (GPU)
+### 3. Build & chạy (CPU)
 ```bash
 docker compose build
 docker compose up -d
 ```
 Mở **http://localhost:8000** để test voice chat.
 
-> Để chạy CPU-only: sửa `docker-compose.yml` → `GPU: "0"`, `TARGET_STAGE: "cpu"`.
+> ZeroTTS chạy CPU-only (ONNX). Không cần GPU NVIDIA.
 
 ---
 
@@ -104,9 +104,10 @@ data: Chào bạn! Mình là chuyên viên tư vấn...
 
 ## 🎛 Cấu hình nâng cao
 
-### Tốc độ nói (`TTS_SPEED`)
-- `1.0` = tự nhiên, `1.2` = nhanh hơn, `0.9` = chậm hơn.
-- Map: `max_new_frames = int(300 * TTS_SPEED)`.
+### Tốc độ nói (`TTS_MIN_FRAMES` / `TTS_MAX_FRAMES`)
+- ZeroTTS điều khiển độ dài bằng ngân sách frame, không phải nhân tốc độ.
+- `TTS_MIN_FRAMES` (mặc định `4`) = độ dài tối thiểu; `TTS_MAX_FRAMES` (mặc định `1500`).
+- Giảm `TTS_MIN_FRAMES` để câu ngắn/cắn gọn hơn.
 
 ### Format text cho TTS
 Hàm `format_for_tts()` trong `app/ai.py` tự động:
@@ -117,7 +118,7 @@ Hàm `format_for_tts()` trong `app/ai.py` tự động:
 ### Giọng nói
 ```python
 # Đổi giọng khi gọi
-requests.post("/v1/chat/stream", json={"message": "...", "voice": "Ngọc Huyền"})
+requests.post("/v1/chat/stream", json={"message": "...", "voice": "maichi"})
 ```
 
 ---
@@ -130,7 +131,7 @@ voice-service/
 │   ├── main.py        # FastAPI: endpoints + streaming SSE
 │   ├── ai.py          # LLM client (OpenAI) + format_for_tts()
 │   ├── stt.py         # STT (sherpa-onnx, nghi-stt-v3)
-│   ├── tts.py         # TTS (VieNeu) + speed control
+│   ├── tts.py         # TTS (ZeroTTS zero-shot)
 │   ├── vad.py         # Silero VAD
 │   ├── pipeline.py    # Voice pipeline (VAD→ASR→LLM→TTS, barge-in)
 │   └── config.py      # Cấu hình từ env
@@ -139,7 +140,7 @@ voice-service/
 ├── scripts/           # Tải model
 ├── models/            # Model STT/TTS/VAD (gitignored)
 ├── docker-compose.yml
-├── Dockerfile         # Multi-stage CPU/GPU
+├── Dockerfile         # Multi-stage CPU
 └── requirements.txt
 ```
 
@@ -152,8 +153,8 @@ voice-service/
 | Audio nháo nhào | Chunk phát chồng nhau | Đã fix: player schedule nối tiếp |
 | Chậm | Gọi LLM 2 lần | Đã fix: 1 LLM call (SSE) |
 | Text đọc sai dấu | Markdown/emoji | `format_for_tts()` tự xử lý |
-| GPU không nhận | Docker VMM (không phải WSL2) | Chuyển Docker Desktop sang WSL2 backend |
-| TTS lỗi CUDA | Driver quá cũ | Dùng image CUDA 12.4 (cu124) |
+| TTS chậm / nóng CPU | Tăng `intra_op_num_threads` hoặc giảm `TTS_MIN_FRAMES` | Chỉnh `config.py` / `.env` |
+| Voice không phù hợp | Đổi `voice` về preset khác | `maichi` / `giahuy` |
 
 ---
 

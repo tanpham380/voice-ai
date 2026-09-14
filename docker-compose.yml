@@ -16,8 +16,8 @@ services:
     build:
       context: .
       args:
-        # GPU=1 builds the NVIDIA CUDA image (PyTorch GPU backend for VieNeu).
-        # Set to 0 (or remove) for the CPU-only (torch-free) image.
+        # ZeroTTS runs on CPU (ONNX, no PyTorch). GPU arg kept for the old
+        # VieNeu backend but is no longer needed.
         GPU: "0"
         # TARGET_STAGE selects the final base: "cpu" or "gpu".
         TARGET_STAGE: "cpu"
@@ -31,15 +31,17 @@ services:
       STT_NUM_THREADS: "4"
       STT_MODEL_DIR: models/stt
       VAD_MODEL: models/vad/silero_vad.onnx
-      TTS_DEFAULT_VOICE: Adam
+      TTS_DEFAULT_VOICE: maichi
       # Pre-configured quick-pick voices (one male, one female) for the UI.
-      TTS_DEFAULT_VOICE_MALE: Adam
-      TTS_DEFAULT_VOICE_FEMALE: Ngọc Huyền
+      # ZeroTTS ships 8 preset voices: maichi, baotrang, kimoanh, hamy,
+      # giahuy, huuduc, quangminh, tiendat.
+      TTS_DEFAULT_VOICE_MALE: giahuy
+      TTS_DEFAULT_VOICE_FEMALE: maichi
       # Speaking rate: 1.0 natural, >1 faster, <1 slower (mapped to VieNeu
       # max_new_frames). Tune so the bot doesn't sound rushed or sluggish.
       TTS_SPEED: ${TTS_SPEED:-1.05}
-      # Local pre-staged VieNeu ONNX artifacts (models/tts). When present the
-      # backbone + cloning load offline; the MOSS codec still comes from HF.
+      # Local pre-staged ZeroTTS ONNX artifacts (models/tts). When present the
+      # backbone loads offline; the MOSS codec still comes from HF.
       TTS_MODEL_DIR: models/tts
       # Point at your ChatbotAIAgent backend. Read from .env (AI_CHAT_URL).
       # Fallback: host.docker.internal for a backend running on the host.
@@ -62,13 +64,13 @@ services:
     volumes:
       # STT models (nghi-stt-v3) persist outside the image.
       - ./models:/app/models
-      # VieNeu TTS model — auto-downloaded from HuggingFace
-      # (pnnbao-ump/VieNeu-TTS-v3-Turbo) on first run, ~1.7 GB.
+      # ZeroTTS TTS model — auto-downloaded from HuggingFace
+      # (zeroweight-ai/ZeroTTS) on first run, ~900 MB.
       # Kept in a named volume so rebuilds don't re-download it.
       - hf-cache:/home/appuser/.cache/huggingface
     restart: unless-stopped
-    # GPU: run VieNeu on the NVIDIA GPU (requires the GPU=1 build above and
-    # an NVIDIA driver with WSL2 GPU-PV support on the host).
+    # ZeroTTS runs on CPU (ONNX); no NVIDIA GPU needed. Remove the deploy block
+    # below entirely on hosts without an NVIDIA driver.
     deploy:
       resources:
         reservations:

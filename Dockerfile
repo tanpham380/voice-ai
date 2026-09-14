@@ -1,9 +1,10 @@
-# Voice service — TTS (VieNeu) + STT (sherpa-onnx, nghi-stt-v3) + AI voice flow.
+# Voice service — TTS (ZeroTTS, CPU ONNX) + STT (sherpa-onnx, nghi-stt-v3) + AI voice flow.
 #
 # Build target is selected by the GPU build-arg:
-#   GPU=0 (default) -> CPU image (torch-free ONNX TTS)
-#   GPU=1           -> NVIDIA CUDA image (PyTorch GPU backend for VieNeu)
-# docker-compose.yml passes GPU=1 + TARGET_STAGE=gpu automatically via build.args.
+#   GPU=0 (default) -> CPU image (torch-free ZeroTTS ONNX)
+#   GPU=1           -> NVIDIA CUDA image (kept for backward compat; ZeroTTS no
+#                      longer uses the PyTorch backend — the CPU image is used).
+# docker-compose.yml passes GPU=0 + TARGET_STAGE=cpu (ZeroTTS is CPU-only).
 
 # Global ARGs (must be declared before any FROM to be visible in all stages).
 ARG GPU=0
@@ -35,7 +36,7 @@ COPY app ./app
 COPY static ./static
 COPY scripts ./scripts
 
-# Pre-stage the VieNeu ONNX backbone + cloning artifacts into models/tts so the
+# Pre-stage the ZeroTTS ONNX backbone into models/tts so the
 # service can boot offline (the MOSS codec is still fetched from HF on first
 # run and cached in the hf-cache volume). The host mounts ./models over /app/models
 # at runtime, so this pre-stage is only a fallback if the host dir is empty.
@@ -60,8 +61,9 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 # ─────────────────────────────────────────────────────────────────────────────
-# GPU stage — NVIDIA CUDA 12.4 runtime (matches host driver 555.97 / CUDA 12.5).
-# VieNeu auto-detects the CUDA torch build and switches to the PyTorch backend.
+# GPU stage — OBSOLETE. ZeroTTS is CPU-only (ONNX); the CPU image above is used
+# by docker-compose.yml (GPU=0, TARGET_STAGE=cpu). Kept only for backward
+# compatibility with the old VieNeu PyTorch backend. Safe to delete.
 # ─────────────────────────────────────────────────────────────────────────────
 FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04 AS gpu
 

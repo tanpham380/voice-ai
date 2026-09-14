@@ -228,6 +228,7 @@ class VoicePipeline:
             wav_chunks: list[bytes] = []
             intents_seen: list[str] = []
 
+            logger.info("process: entering LLM stream")
             for token in ai.ask_stream(transcript, self.session_id):
                 if self._abort.is_set():
                     logger.info("barge-in abort during LLM stream")
@@ -328,22 +329,71 @@ def _wrap_wav(pcm16: bytes, sample_rate: int = 48000) -> bytes:
     return buf.getvalue()
 
 
+def _run_pipeline_once(audio_16k_mono_f32: np.ndarray,
+                       session_id: str | None = None,
+                       voice: str | None = None) -> dict:
+    """Run the full voice pipeline on a complete utterance buffer.
+
+    VAD-free path: the caller already sent the whole recording, so we do not
+    need to gate ASR on voice activity. We transcribe directly, stream the LLM
+    once, and synthesize sentence-by-sentence. Returns {transcript, answer,
+    wav, intents}.
+
+    Unlike the VAD-gated ``VoicePipeline.run_once`` (which blocks on a worker
+    thread with an artificial timeout), this runs synchronously and waits for
+    the LLM to finish, so it never times out mid-stream.
+    """
+    voice = voice or config.TTS_DEFAULT_VOICE
+    try:
+        samples = np.asarray(audio_16k_mono_f32, dtype=np.float32).reshape(-1)
+        transcript = stt.transcribe(samples, 16000)
+        if not transcript:
+            return {"transcript": "", "answer": "", "wav": b"", "intents": []}
+
+        answer_parts: list[str] = []
+        pending = ""
+        wav_chunks: list[bytes] = []
+        intents_seen: list[str] = []
+
+        for token in ai.ask_stream(transcript, session_id):
+            answer_parts.append(token)
+            pending += token
+            clean = ai.format_for_tts(pending)
+            sentences = _split_sentences(clean)
+            if len(sentences) > 1:
+                for sent in sentences[:-1]:
+                    clean_s, intents = _strip_intents(sent)
+                    intents_seen.extend(intents)
+                    if clean_s:
+                        for chunk in tts.synthesize_stream(clean_s, voice, **_tts_kwargs()):
+                            wav_chunks.append(chunk)
+                pending = sentences[-1]
+
+        # Flush the final remainder.
+        if pending.strip():
+            clean, intents = _strip_intents(pending)
+            intents_seen.extend(intents)
+            if clean:
+                for chunk in tts.synthesize_stream(clean, voice, **_tts_kwargs()):
+                    wav_chunks.append(chunk)
+
+        answer = "".join(answer_parts).strip()
+        wav = b"".join(wav_chunks)
+        return {
+            "transcript": transcript,
+            "answer": answer,
+            "wav": wav,
+            "intents": intents_seen,
+        }
+    except Exception as e:  # noqa: BLE001
+        logger.exception("pipeline error")
+        return {"transcript": "", "answer": f"[lỗi] {e}", "wav": b"", "intents": []}
+
+
 def chat_once(audio_16k_mono_f32: np.ndarray, session_id: str | None = None,
               voice: str | None = None) -> dict:
-    """Convenience: run the full pipeline on a complete utterance buffer.
+    """Run the full voice pipeline on a complete utterance buffer.
 
     Used by the HTTP endpoint when the browser sends a whole recording.
     """
-    p = VoicePipeline(session_id=session_id, voice=voice)
-    p._set_state(STATE_LISTENING)
-    # Feed in frames; the last silence run triggers ASR+LLM.
-    for i in range(0, len(audio_16k_mono_f32), _FRAME):
-        frame = audio_16k_mono_f32[i : i + _FRAME]
-        if len(frame) < _FRAME:
-            frame = np.pad(frame, (0, _FRAME - len(frame)))
-        p.feed(frame)
-    # Force flush if still voiced (no trailing silence).
-    with p._lock:
-        if p._voiced:
-            p._flush()
-    return p.run_once(timeout=config.AI_TIMEOUT_SECONDS + 30)
+    return _run_pipeline_once(audio_16k_mono_f32, session_id=session_id, voice=voice)

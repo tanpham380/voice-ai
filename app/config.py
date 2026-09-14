@@ -45,52 +45,47 @@ VAD_MODEL_ABS = (ROOT / VAD_MODEL).resolve()
 # ─── TTS ───
 # Local directory holding the pre-staged VieNeu ONNX artifacts
 # (backbone int8 graphs + denoiser.onnx + speaker_encoder.onnx).
-# When this directory exists, the engine loads from it directly (no HF fetch
-# for the backbone / clone files). The MOSS codec is still fetched from HF on
-# first run and cached in the HuggingFace cache.
+# Local directory holding the pre-staged ZeroTTS weights
+# (scripts/download_tts_models.py). When this directory exists, the engine
+# loads from it directly (no HF fetch). app/tts.py detects it by looking for
+# ``onnx/**/*.onnx`` under this directory.
 TTS_MODEL_DIR = _env("TTS_MODEL_DIR", "models/tts")
 TTS_MODEL_DIR_ABS = (ROOT / TTS_MODEL_DIR).resolve()
 # Default voice used when the caller doesn't specify one.
-TTS_DEFAULT_VOICE = _env("TTS_DEFAULT_VOICE", "Adam")
+TTS_DEFAULT_VOICE = _env("TTS_DEFAULT_VOICE", "maichi")
 # Pre-configured quick-pick voices: one male, one female. These are surfaced in
 # the UI as one-tap buttons and returned by /health + /v1/tts/voices.
-TTS_DEFAULT_VOICE_MALE = _env("TTS_DEFAULT_VOICE_MALE", "Adam")
-TTS_DEFAULT_VOICE_FEMALE = _env("TTS_DEFAULT_VOICE_FEMALE", "Ngọc Huyền")
+# ZeroTTS ships 8 preset voices (maichi, baotrang, kimoanh, hamy, giahuy,
+# huuduc, quangminh, tiendat).
+TTS_DEFAULT_VOICE_MALE = _env("TTS_DEFAULT_VOICE_MALE", "giahuy")
+TTS_DEFAULT_VOICE_FEMALE = _env("TTS_DEFAULT_VOICE_FEMALE", "maichi")
 DEFAULT_VOICES = {
     "male": TTS_DEFAULT_VOICE_MALE,
     "female": TTS_DEFAULT_VOICE_FEMALE,
 }
 
-# ─── TTS (VieNeu) sampling / reading params ───
-# These tune how the model "reads" the text. All overridable per-request via
-# the /v1/tts/* endpoints. Defaults mirror VieNeu's own defaults.
-TTS_TEMPERATURE = float(_env("TTS_TEMPERATURE", "0.8"))
-TTS_TOP_P = float(_env("TTS_TOP_P", "0.95"))
-TTS_TOP_K = _env_int("TTS_TOP_K", 25)
-TTS_REPETITION_PENALTY = float(_env("TTS_REPETITION_PENALTY", "1.2"))
-TTS_REPETITION_WINDOW = _env_int("TTS_REPETITION_WINDOW", 64)
-TTS_MAX_CHARS = _env_int("TTS_MAX_CHARS", 256)
-# silence_p adds pauses between sentences (0..1); crossfade_p smooths chunks.
-TTS_SILENCE_P = float(_env("TTS_SILENCE_P", "0.15"))
-TTS_CROSSFADE_P = float(_env("TTS_CROSSFADE_P", "0.3"))
-# VieNeu output sample rate (Hz).
+# ─── TTS (ZeroTTS) sampling / reading params ───
+# These tune how the ZeroTTS model "reads" the text. All overridable per-request
+# via /v1/tts/* endpoints. Defaults are ZeroTTS benchmarked values.
+#
+# ZeroTTS generates MOSS codec codes frame-by-frame. The two temperature/top-k
+# knobs split text-conditioning (voice identity) from audio-code sampling.
+TTS_CFG_SCALE = float(_env("TTS_CFG_SCALE", "1.0"))
+TTS_TEXT_TEMPERATURE = float(_env("TTS_TEXT_TEMPERATURE", "1.0"))
+TTS_TEXT_TOPK = _env_int("TTS_TEXT_TOPK", 50)
+TTS_AUDIO_TEMPERATURE = float(_env("TTS_AUDIO_TEMPERATURE", "0.8"))
+TTS_AUDIO_TOPK = _env_int("TTS_AUDIO_TOPK", 25)
+TTS_AUDIO_TOPP = float(_env("TTS_AUDIO_TOPP", "0.95"))
+TTS_AUDIO_REPETITION_PENALTY = float(_env("TTS_AUDIO_REPETITION_PENALTY", "1.2"))
+# Frame budget for one utterance. min_frames gates the first chunk (lower =
+# smaller time-to-first-audio); max_frames caps very long text.
+TTS_MIN_FRAMES = _env_int("TTS_MIN_FRAMES", 4)
+TTS_MAX_FRAMES = _env_int("TTS_MAX_FRAMES", 1500)
+# ZeroTTS output sample rate (Hz).
 TTS_SAMPLE_RATE = _env_int("TTS_SAMPLE_RATE", 48000)
 # Silence padding (samples) inserted between streamed TTS chunks to avoid hard
 # clicks at chunk joins. At 48 kHz, ~30 ms is a natural micro-pause.
 TTS_SILENCE_SAMPLES = int(round(TTS_SAMPLE_RATE * 0.030))
-# Speaking rate. 1.0 = natural; >1 faster, <1 slower. Mapped to VieNeu's
-# max_new_frames (base 300): max_new_frames = int(300 * TTS_SPEED).
-TTS_SPEED = float(_env("TTS_SPEED", "1.35"))
-TTS_MAX_NEW_FRAMES_BASE = _env_int("TTS_MAX_NEW_FRAMES_BASE", 300)
-# Pitch-preserving playback speed-up. VieNeu has NO native speaking-rate
-# parameter, so this time-stretches the synthesized audio (faster speech,
-# same pitch). 1.0 = natural; >1 faster. Tuned in .env.
-TTS_PLAYBACK_SPEED = float(_env("TTS_PLAYBACK_SPEED", "1.25"))
-# Optional style/emotion cue passed to the engine (e.g. "happy", "calm").
-# Empty = default neutral reading. Can also embed [cười] etc. in the text.
-TTS_STYLE = _env("TTS_STYLE", "")
-# Apply the VieNeu watermark to synthesized audio (provenance). 1/0.
-TTS_APPLY_WATERMARK = _env_int("TTS_APPLY_WATERMARK", 1) == 1
 
 # ─── AI (LLM) ───
 # Local-first: STT + TTS run offline; only the LLM calls an OpenAI-compatible API.

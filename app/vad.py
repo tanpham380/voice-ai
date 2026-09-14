@@ -47,31 +47,32 @@ class VAD:
             str(config.VAD_MODEL_ABS), sess_options=so, providers=["CPUExecutionProvider"]
         )
         self._sr_tensor = np.array(_SAMPLE_RATE, dtype=np.int64)
-        # Hidden state: (2,1,128) for the 1x64 GRU, init to zeros.
-        self._state = np.zeros((2, 1, 128), dtype=np.float32)
+        # Silero state: (2,1,64) for h and c, init to zeros.
+        self._state_h = np.zeros((2, 1, 64), dtype=np.float32)
+        self._state_c = np.zeros((2, 1, 64), dtype=np.float32)
         logger.info("Silero VAD ready")
 
     def reset(self) -> None:
         with self._lock:
-            self._state = np.zeros((2, 1, 128), dtype=np.float32)
+            self._state_h = np.zeros((2, 1, 64), dtype=np.float32)
+            self._state_c = np.zeros((2, 1, 64), dtype=np.float32)
 
     def is_voice(self, frame16k_mono_f32: np.ndarray) -> bool:
         """Return True if the given 512-sample frame contains speech."""
         with self._lock:
             self._ensure()
             x = np.asarray(frame16k_mono_f32, dtype=np.float32).reshape(1, -1)
-            state0 = self._state
-            state1 = np.zeros_like(state0)
-            out, new_state, _sr = self._session.run(
-                None,
+            prob, new_h, new_c = self._session.run(
+                ["prob", "new_h", "new_c"],
                 {
                     "x": x,
-                    "state": state0,
-                    "sr": self._sr_tensor,
+                    "h": self._state_h,
+                    "c": self._state_c,
                 },
             )
-            self._state = new_state
-            score = float(np.squeeze(out))
+            self._state_h = new_h
+            self._state_c = new_c
+            score = float(np.squeeze(prob))
             return score > 0.5
 
 
