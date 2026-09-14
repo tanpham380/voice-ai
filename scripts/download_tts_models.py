@@ -24,6 +24,9 @@ Layout written here (mirrors what app/tts.py expects — flat, no subfolder):
       denoiser.onnx         <- cloning (repo root)
       speaker_encoder.onnx  <- cloning (repo root)
 
+Subfolder: ``onnx_update`` (the latest re-quantized ONNX graphs pushed by the
+VieNeu maintainers; prefill/decode_step are smaller, backbone_shared is larger).
+
 Usage:
     python scripts/download_tts_models.py
 """
@@ -40,7 +43,8 @@ TTS_DIR = ROOT / "models" / "tts"
 # subfolder; we download them flat into TTS_DIR (app/tts.py points onnx_dir
 # at TTS_DIR directly).
 V3_REPO = "pnnbao-ump/VieNeu-TTS-v3-Turbo"
-ONNX_SUBFOLDER = "onnx_int8"
+# Latest re-quantized ONNX graphs pushed by the VieNeu maintainers.
+ONNX_SUBFOLDER = "onnx_update"
 
 # Backbone graphs + setup (fetched from <V3_REPO>/<ONNX_SUBFOLDER>).
 BACKBONE_FILES = [
@@ -115,7 +119,7 @@ def _download(url: str, dest: Path, expected: int | None = None) -> None:
 
 
 def download_tts() -> None:
-    print(f"== VieNeu-TTS v3 Turbo (ONNX, int8) → {TTS_DIR}")
+    print(f"== VieNeu-TTS v3 Turbo (ONNX, {ONNX_SUBFOLDER}) → {TTS_DIR}")
     print(f"   backbone subfolder: {ONNX_SUBFOLDER}")
     for fn in BACKBONE_FILES:
         _download(_hf_url(V3_REPO, fn, ONNX_SUBFOLDER), TTS_DIR / fn, _hf_size(V3_REPO, fn, ONNX_SUBFOLDER))

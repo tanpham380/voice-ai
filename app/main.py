@@ -87,13 +87,27 @@ def _stream_tts_pcm(message: str, session_id: str | None, voice: str | None):
     """Yield raw PCM16 @48 kHz chunks: LLM streams tokens -> sentence TTS.
 
     This is the low-latency core shared by both the text and voice paths. The
-    first audio chunk arrives after the first sentence (or ~4 words), so the
+    first audio chunk arrives after the first sentence (or ~6 words), so the
     browser can start playing immediately instead of waiting for the whole
     answer. The caller wraps it in either a WAV header (StreamingResponse) or
     a raw PCM stream for Web Audio.
     """
-    tts_kwargs = _tts_kwargs({"voice": voice} if voice else {})
+    tts_kwargs = _tts_kwargs({})
     pending = ""
+    # Silence (~30 ms) inserted between chunks so the client does not hear a
+    # hard click when one chunk ends and the next begins. Learned from
+    # xiaozhi-esp32-server, which spaces audio packets at real-time cadence
+    # instead of dumping every chunk back-to-back.
+    silence = np.zeros(config.TTS_SILENCE_SAMPLES, dtype=np.int16).astype(np.int16).tobytes()
+    _prev_was_silence = False
+
+    def _yield(chunk):
+        nonlocal _prev_was_silence
+        if _prev_was_silence:
+            yield silence
+        _prev_was_silence = False
+        yield chunk
+
     try:
         for token in ai.ask_stream(message, session_id):
             pending += token
@@ -103,11 +117,13 @@ def _stream_tts_pcm(message: str, session_id: str | None, voice: str | None):
             if len(sentences) > 1:
                 for sent in sentences[:-1]:
                     for chunk in tts.synthesize_stream(sent, voice, **tts_kwargs):
-                        yield chunk
+                        yield from _yield(chunk)
                 pending = sentences[-1]
+                # Keep a short gap before the next sentence's first chunk.
+                _prev_was_silence = True
         if pending.strip():
             for chunk in tts.synthesize_stream(pending, voice, **tts_kwargs):
-                yield chunk
+                yield from _yield(chunk)
     except Exception as e:
         logger.exception("stream-tts failed")
 
@@ -239,7 +255,7 @@ async def chat_stream(req: ChatRequest):
         raise HTTPException(status_code=400, detail="message trống")
 
     voice = req.voice if hasattr(req, "voice") else None
-    tts_kwargs = _tts_kwargs({"voice": voice} if voice else {})
+    tts_kwargs = _tts_kwargs({})
 
     def gen():
         pending = ""
@@ -365,7 +381,7 @@ async def voice_chat_stream(
             media_type="text/event-stream",
         )
 
-    tts_kwargs = _tts_kwargs({"voice": voice} if voice else {})
+    tts_kwargs = _tts_kwargs({})
 
     def gen():
         yield f"event: transcript\ndata: {transcript}\n\n"

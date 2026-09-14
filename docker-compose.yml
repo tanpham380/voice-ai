@@ -18,9 +18,9 @@ services:
       args:
         # GPU=1 builds the NVIDIA CUDA image (PyTorch GPU backend for VieNeu).
         # Set to 0 (or remove) for the CPU-only (torch-free) image.
-        GPU: "1"
+        GPU: "0"
         # TARGET_STAGE selects the final base: "cpu" or "gpu".
-        TARGET_STAGE: "gpu"
+        TARGET_STAGE: "cpu"
     container_name: voice-service
     ports:
       - "8000:8000"

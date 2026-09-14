@@ -51,8 +51,11 @@ _INTENT_RE = re.compile(r"\[intent:([a-z_]+)\]", re.IGNORECASE)
 # accumulated, so the first audio plays after a short phrase instead of a
 # whole sentence. Sentence punctuation still forces an immediate break.
 # Tunable: lower = earlier first audio but more robotic / more calls;
-# higher = smoother prosody but higher latency. 4 is a good balance for
-# VieNeu streaming (single-word chunks lose prosody and add per-call cost).
+# higher = smoother prosody but higher latency.
+# 4 words is tuned for low voice latency: the bot starts speaking sooner
+# (smaller TTFA) while still keeping reasonable prosody. Learned from
+# xiaozhi-esp32-server, which splits by sentence punctuation (。！？) rather
+# than per-word to keep prosody continuous.
 _MIN_TTS_WORDS = 4
 
 # Punctuation that forces an immediate chunk break (sentence-level).

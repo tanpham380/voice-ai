@@ -164,7 +164,35 @@ def clone(text: str, ref_audio: bytes, voice: str | None = None,
 
 def _pcm16(audio_f32: np.ndarray) -> bytes:
     """Encode a float32 chunk to raw little-endian PCM16 (for streaming)."""
-    return (np.asarray(audio_f32) * 32767).clip(-32768, 32767).astype(np.int16).tobytes()
+    a = np.asarray(audio_f32, dtype=np.float32)
+    a = np.clip(a * 32767.0, -32768, 32767)
+    return a.astype(np.int16).tobytes()
+
+
+def time_stretch(audio_f32: np.ndarray, speed: float) -> np.ndarray:
+    """Pitch-preserving time-stretch: faster speech at the same pitch.
+
+    VieNeu has no native speaking-rate parameter, so we speed up the rendered
+    audio with a phase-vocoder (librosa) instead of just trimming frames.
+    `speed` > 1 compresses time (faster); < 1 slows down. Returns float32 at
+    the same sample rate. Falls back to the input unchanged if librosa is
+    unavailable or the factor is near 1.0.
+    """
+    if speed <= 0.9 or speed >= 1.05:
+        try:
+            import warnings
+            import librosa
+            y = np.asarray(audio_f32, dtype=np.float32).reshape(-1)
+            if y.size > 0:
+                # librosa >= 1.0 moved time_stretch under librosa.effects.
+                ts = getattr(librosa, "time_stretch", None) or \
+                    getattr(librosa.effects, "time_stretch", None)
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    return ts(y=y, rate=float(speed))
+        except Exception as e:  # noqa: BLE001
+            logger.warning("time_stretch unavailable (%s); using raw audio", e)
+    return np.asarray(audio_f32, dtype=np.float32).reshape(-1)
 
 
 def synthesize_stream(text: str, voice: str | None = None, **kwargs):
@@ -185,9 +213,15 @@ def synthesize_stream(text: str, voice: str | None = None, **kwargs):
         return
     engine = get_engine()
     voice = voice or config.TTS_DEFAULT_VOICE
+    # Playback speed-up (pitch-preserving). VieNeu has no native speaking-rate
+    # param, so we time-stretch the rendered audio to speak faster. Applied
+    # per-chunk so the streamed output is already sped up before playback.
+    playback_speed = config.TTS_PLAYBACK_SPEED
     for chunk in engine.infer_stream(clean, voice=voice, **_tts_kwargs(kwargs)):
         if chunk is None or len(chunk) == 0:
             continue
+        if playback_speed != 1.0:
+            chunk = time_stretch(chunk, playback_speed)
         yield _pcm16(chunk)
 
 

@@ -4,6 +4,13 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+# Load .env into os.environ on import (so enable_thinking, API keys, etc. apply).
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
+
 # Project root = the directory that contains `app/`.
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -65,11 +72,20 @@ TTS_REPETITION_WINDOW = _env_int("TTS_REPETITION_WINDOW", 64)
 TTS_MAX_CHARS = _env_int("TTS_MAX_CHARS", 256)
 # silence_p adds pauses between sentences (0..1); crossfade_p smooths chunks.
 TTS_SILENCE_P = float(_env("TTS_SILENCE_P", "0.15"))
-TTS_CROSSFADE_P = float(_env("TTS_CROSSFADE_P", "0.0"))
+TTS_CROSSFADE_P = float(_env("TTS_CROSSFADE_P", "0.3"))
+# VieNeu output sample rate (Hz).
+TTS_SAMPLE_RATE = _env_int("TTS_SAMPLE_RATE", 48000)
+# Silence padding (samples) inserted between streamed TTS chunks to avoid hard
+# clicks at chunk joins. At 48 kHz, ~30 ms is a natural micro-pause.
+TTS_SILENCE_SAMPLES = int(round(TTS_SAMPLE_RATE * 0.030))
 # Speaking rate. 1.0 = natural; >1 faster, <1 slower. Mapped to VieNeu's
 # max_new_frames (base 300): max_new_frames = int(300 * TTS_SPEED).
-TTS_SPEED = float(_env("TTS_SPEED", "1.0"))
+TTS_SPEED = float(_env("TTS_SPEED", "1.35"))
 TTS_MAX_NEW_FRAMES_BASE = _env_int("TTS_MAX_NEW_FRAMES_BASE", 300)
+# Pitch-preserving playback speed-up. VieNeu has NO native speaking-rate
+# parameter, so this time-stretches the synthesized audio (faster speech,
+# same pitch). 1.0 = natural; >1 faster. Tuned in .env.
+TTS_PLAYBACK_SPEED = float(_env("TTS_PLAYBACK_SPEED", "1.25"))
 # Optional style/emotion cue passed to the engine (e.g. "happy", "calm").
 # Empty = default neutral reading. Can also embed [cười] etc. in the text.
 TTS_STYLE = _env("TTS_STYLE", "")
